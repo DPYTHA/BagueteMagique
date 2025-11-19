@@ -8,9 +8,6 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Middleware pour servir les fichiers statiques
-app.use('/assets', express.static('assets'));
-
 // Page d'accueil simplifiée
 app.get('/', (req, res) => {
   res.send(`
@@ -177,12 +174,10 @@ app.get('/', (req, res) => {
                     url = 'https://' + url;
                 }
                 
-                // Encoder l'URL pour la passer en paramètre
                 const encodedUrl = encodeURIComponent(url);
                 window.location.href = '/browse?url=' + encodedUrl;
             }
 
-            // Enter key support
             document.getElementById('urlInput').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     navigateToSite();
@@ -194,7 +189,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-// PROXY ULTIME - Gère tout le trafic
+// PROXY ULTIME
 app.use('/browse', async (req, res) => {
   try {
     let targetUrl = req.query.url;
@@ -203,10 +198,8 @@ app.use('/browse', async (req, res) => {
       return res.redirect('/');
     }
 
-    // Décoder l'URL
     targetUrl = decodeURIComponent(targetUrl);
     
-    // S'assurer que l'URL a le protocole
     if (!targetUrl.startsWith('http')) {
       targetUrl = 'https://' + targetUrl;
     }
@@ -216,7 +209,6 @@ app.use('/browse', async (req, res) => {
     const parsedUrl = new URL(targetUrl);
     const isHttps = parsedUrl.protocol === 'https:';
     
-    // Options de la requête
     const options = {
       hostname: parsedUrl.hostname,
       port: parsedUrl.port || (isHttps ? 443 : 80),
@@ -244,7 +236,6 @@ app.use('/browse', async (req, res) => {
       timeout: 15000
     };
 
-    // Supprimer certains headers problématiques
     delete options.headers['if-none-match'];
     delete options.headers['if-modified-since'];
 
@@ -253,20 +244,16 @@ app.use('/browse', async (req, res) => {
     const proxyReq = protocol.request(options, (proxyRes) => {
       console.log(`📡 Réponse reçue: ${proxyRes.statusCode} pour ${targetUrl}`);
       
-      // Copier les headers de réponse
       const responseHeaders = { ...proxyRes.headers };
       
-      // Réécrire les URLs dans les headers de localisation
       if (responseHeaders.location) {
         responseHeaders.location = rewriteUrl(responseHeaders.location, parsedUrl.origin);
       }
       
-      // Réécrire les cookies pour qu'ils pointent vers notre domaine
       if (responseHeaders['set-cookie']) {
         responseHeaders['set-cookie'] = rewriteCookies(responseHeaders['set-cookie']);
       }
       
-      // Gérer l'encodage
       let encoding = proxyRes.headers['content-encoding'];
       let shouldUnzip = encoding === 'gzip' || encoding === 'deflate' || encoding === 'br';
       
@@ -286,7 +273,6 @@ app.use('/browse', async (req, res) => {
             zlib.unzip(buffer, (err, decompressed) => {
               if (err) {
                 console.log('❌ Erreur décompression:', err);
-                // Envoyer les données non décompressées
                 const rewritten = rewriteContent(buffer.toString(), targetUrl);
                 res.end(rewritten);
               } else {
@@ -325,7 +311,6 @@ app.use('/browse', async (req, res) => {
       res.status(504).send('Timeout - Le site met trop de temps à répondre');
     });
 
-    // Transférer le body pour les requêtes POST
     if (req.method === 'POST' && req.body) {
       const postData = JSON.stringify(req.body);
       proxyReq.write(postData);
@@ -347,7 +332,6 @@ app.use('/browse', async (req, res) => {
   }
 });
 
-// Fonction pour réécrire les URLs dans le contenu
 function rewriteContent(content, baseUrl) {
   if (!content || typeof content !== 'string') return content;
   
@@ -356,7 +340,6 @@ function rewriteContent(content, baseUrl) {
     const baseOrigin = base.origin;
     const proxyBase = '/browse?url=';
     
-    // Réécrire les URLs absolues
     content = content.replace(
       /(href|src|action)=["'](https?:\/\/[^"']+)["']/gi,
       (match, attr, url) => {
@@ -364,7 +347,6 @@ function rewriteContent(content, baseUrl) {
       }
     );
     
-    // Réécrire les URLs relatives
     content = content.replace(
       /(href|src|action)=["'](\/[^"']*)["']/gi,
       (match, attr, path) => {
@@ -373,7 +355,6 @@ function rewriteContent(content, baseUrl) {
       }
     );
     
-    // Réécrire les URLs dans les styles
     content = content.replace(
       /url\(["']?(https?:\/\/[^"')]+)["']?\)/gi,
       (match, url) => {
@@ -381,7 +362,6 @@ function rewriteContent(content, baseUrl) {
       }
     );
     
-    // Réécrire les URLs relatives dans les styles
     content = content.replace(
       /url\(["']?(\/[^"')]+)["']?\)/gi,
       (match, path) => {
@@ -390,7 +370,6 @@ function rewriteContent(content, baseUrl) {
       }
     );
     
-    // Réécrire les redirections JavaScript
     content = content.replace(
       /window\.location\.href\s*=\s*["'](https?:\/\/[^"']+)["']/gi,
       (match, url) => {
@@ -405,7 +384,6 @@ function rewriteContent(content, baseUrl) {
   }
 }
 
-// Fonction pour réécrire les URLs dans les headers
 function rewriteUrl(url, baseOrigin) {
   try {
     if (url.startsWith('http')) {
@@ -420,7 +398,6 @@ function rewriteUrl(url, baseOrigin) {
   }
 }
 
-// Fonction pour réécrire les cookies
 function rewriteCookies(cookies) {
   if (Array.isArray(cookies)) {
     return cookies.map(cookie => 
@@ -436,12 +413,10 @@ function rewriteCookies(cookies) {
   return cookies;
 }
 
-// Route pour les favicon et autres assets
 app.get('/favicon.ico', (req, res) => {
   res.status(204).end();
 });
 
-// Port
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`🔮 PROXY ULTIME activé sur le port ${port}`);
