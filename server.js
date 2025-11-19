@@ -1,12 +1,17 @@
 const express = require('express');
+const https = require('https');
+const http = require('http');
 const app = express();
 
-// Page d'accueil avec la baguette magique
+// Middleware pour parser les données
+app.use(express.urlencoded({ extended: true }));
+
+// Page d'accueil
 app.get('/', (req, res) => {
   res.send(`
     <html>
     <head>
-        <title>🔮 Ma Baguette Magique</title>
+        <title>🔮 Ma Baguette Magique PROXY</title>
         <style>
             body { 
                 font-family: Arial, sans-serif; 
@@ -21,7 +26,7 @@ app.get('/', (req, res) => {
                 border-radius: 15px;
                 color: black;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-                max-width: 500px;
+                max-width: 600px;
                 margin: 0 auto;
             }
             input {
@@ -45,39 +50,121 @@ app.get('/', (req, res) => {
             button:hover {
                 background: #764ba2;
             }
+            .warning {
+                color: red;
+                font-size: 14px;
+                margin-top: 20px;
+            }
         </style>
     </head>
     <body>
         <div class="magic-box">
-            <h1>🔮 Ma Baguette Magique</h1>
+            <h1>🔮 Proxy Magique</h1>
             <p>Entre l'adresse de n'importe quel site :</p>
-            <form action="/magie" method="get">
+            <form action="/proxy" method="get">
                 <input type="text" name="url" placeholder="https://example.com" required>
                 <br>
-                <button type="submit">✨ Ouvrir le Site !</button>
+                <button type="submit">✨ Accéder au Site !</button>
             </form>
-            <p><small>Exemple: https://www.youtube.com</small></p>
+            <p><small>Exemple: https://www.google.com</small></p>
+            <div class="warning">
+                ⚠️ Cette version utilise un vrai proxy depuis Railway !
+            </div>
         </div>
     </body>
     </html>
   `);
 });
 
-// La magie qui redirige vers n'importe quel site
-app.get('/magie', (req, res) => {
+// Proxy magique - version améliorée
+app.get('/proxy', (req, res) => {
+  let targetUrl = req.query.url;
+  
+  if (!targetUrl) {
+    return res.redirect('/');
+  }
+  
+  // Nettoyage de l'URL
+  if (!targetUrl.startsWith('http')) {
+    targetUrl = 'https://' + targetUrl;
+  }
+  
+  console.log('🔮 Requête proxy vers:', targetUrl);
+  
+  try {
+    const parsedUrl = new URL(targetUrl);
+    const options = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    };
+    
+    const protocol = parsedUrl.protocol === 'https:' ? https : http;
+    
+    const proxyReq = protocol.request(options, (proxyRes) => {
+      // Transférer les headers
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      
+      // Transférer les données
+      proxyRes.pipe(res);
+    });
+    
+    proxyReq.on('error', (err) => {
+      console.error('❌ Erreur proxy:', err);
+      res.status(500).send('Erreur lors de l\'accès au site: ' + err.message);
+    });
+    
+    proxyReq.end();
+    
+  } catch (error) {
+    console.error('❌ URL invalide:', error);
+    res.status(400).send('URL invalide');
+  }
+});
+
+// Route pour afficher le contenu dans un iframe (alternative)
+app.get('/view', (req, res) => {
   let url = req.query.url;
   
-  // Petit nettoyage magique
+  if (!url) {
+    return res.redirect('/');
+  }
+  
   if (!url.startsWith('http')) {
     url = 'https://' + url;
   }
   
-  console.log('🔮 Redirection vers:', url);
-  res.redirect(url);
+  res.send(`
+    <html>
+    <head>
+        <title>Visionneuse - ${url}</title>
+        <style>
+            body { margin: 0; padding: 0; }
+            iframe { width: 100%; height: 100vh; border: none; }
+            .header { 
+                background: #667eea; 
+                color: white; 
+                padding: 10px; 
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            🔮 Affichage de: ${url} 
+            <a href="/" style="color: white; margin-left: 20px;">← Retour</a>
+        </div>
+        <iframe src="/proxy?url=${encodeURIComponent(url)}" sandbox="allow-scripts allow-forms allow-same-origin allow-popups"></iframe>
+    </body>
+    </html>
+  `);
 });
 
-// Écoute sur le port de Railway
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`🔮 Baguette magique activée sur le port ${port}`);
+  console.log(`🔮 Proxy magique activé sur le port ${port}`);
 });
