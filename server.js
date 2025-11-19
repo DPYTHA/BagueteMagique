@@ -189,7 +189,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-// PROXY ULTIME
+// PROXY ULTIME - VERSION CORRIGÉE
 app.use('/browse', async (req, res) => {
   try {
     let targetUrl = req.query.url;
@@ -215,29 +215,18 @@ app.use('/browse', async (req, res) => {
       path: parsedUrl.pathname + parsedUrl.search,
       method: req.method,
       headers: {
-        ...req.headers,
         'host': parsedUrl.hostname,
-        'origin': parsedUrl.origin,
-        'referer': parsedUrl.origin,
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'accept-language': 'en-US,en;q=0.9',
-        'accept-encoding': 'gzip, deflate, br',
+        // NE PAS demander la compression pour éviter les problèmes
+        'accept-encoding': 'identity',
         'cache-control': 'no-cache',
-        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'document',
-        'sec-fetch-mode': 'navigate',
-        'sec-fetch-site': 'none',
         'upgrade-insecure-requests': '1'
       },
       rejectUnauthorized: false,
       timeout: 15000
     };
-
-    delete options.headers['if-none-match'];
-    delete options.headers['if-modified-since'];
 
     const protocol = isHttps ? https : http;
 
@@ -245,6 +234,10 @@ app.use('/browse', async (req, res) => {
       console.log(`📡 Réponse reçue: ${proxyRes.statusCode} pour ${targetUrl}`);
       
       const responseHeaders = { ...proxyRes.headers };
+      
+      // Supprimer les headers de compression problématiques
+      delete responseHeaders['content-encoding'];
+      delete responseHeaders['content-length'];
       
       if (responseHeaders.location) {
         responseHeaders.location = rewriteUrl(responseHeaders.location, parsedUrl.origin);
@@ -254,40 +247,22 @@ app.use('/browse', async (req, res) => {
         responseHeaders['set-cookie'] = rewriteCookies(responseHeaders['set-cookie']);
       }
       
-      let encoding = proxyRes.headers['content-encoding'];
-      let shouldUnzip = encoding === 'gzip' || encoding === 'deflate' || encoding === 'br';
-      
       res.writeHead(proxyRes.statusCode, responseHeaders);
       
-      let chunks = [];
+      let data = Buffer.alloc(0);
       
       proxyRes.on('data', (chunk) => {
-        chunks.push(chunk);
+        data = Buffer.concat([data, chunk]);
       });
       
       proxyRes.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        
-        if (shouldUnzip) {
-          try {
-            zlib.unzip(buffer, (err, decompressed) => {
-              if (err) {
-                console.log('❌ Erreur décompression:', err);
-                const rewritten = rewriteContent(buffer.toString(), targetUrl);
-                res.end(rewritten);
-              } else {
-                const rewritten = rewriteContent(decompressed.toString(), targetUrl);
-                res.end(rewritten);
-              }
-            });
-          } catch (e) {
-            console.log('❌ Erreur traitement décompression:', e);
-            const rewritten = rewriteContent(buffer.toString(), targetUrl);
-            res.end(rewritten);
-          }
-        } else {
-          const rewritten = rewriteContent(buffer.toString(), targetUrl);
+        try {
+          const content = data.toString();
+          const rewritten = rewriteContent(content, targetUrl);
           res.end(rewritten);
+        } catch (error) {
+          console.error('❌ Erreur traitement contenu:', error);
+          res.end(data);
         }
       });
     });
@@ -310,11 +285,6 @@ app.use('/browse', async (req, res) => {
       proxyReq.destroy();
       res.status(504).send('Timeout - Le site met trop de temps à répondre');
     });
-
-    if (req.method === 'POST' && req.body) {
-      const postData = JSON.stringify(req.body);
-      proxyReq.write(postData);
-    }
 
     proxyReq.end();
 
@@ -340,6 +310,7 @@ function rewriteContent(content, baseUrl) {
     const baseOrigin = base.origin;
     const proxyBase = '/browse?url=';
     
+    // Réécrire les URLs absolues
     content = content.replace(
       /(href|src|action)=["'](https?:\/\/[^"']+)["']/gi,
       (match, attr, url) => {
@@ -347,6 +318,7 @@ function rewriteContent(content, baseUrl) {
       }
     );
     
+    // Réécrire les URLs relatives
     content = content.replace(
       /(href|src|action)=["'](\/[^"']*)["']/gi,
       (match, attr, path) => {
@@ -355,6 +327,7 @@ function rewriteContent(content, baseUrl) {
       }
     );
     
+    // Réécrire les URLs CSS
     content = content.replace(
       /url\(["']?(https?:\/\/[^"')]+)["']?\)/gi,
       (match, url) => {
@@ -362,18 +335,12 @@ function rewriteContent(content, baseUrl) {
       }
     );
     
+    // Réécrire les URLs CSS relatives
     content = content.replace(
       /url\(["']?(\/[^"')]+)["']?\)/gi,
       (match, path) => {
         const fullUrl = baseOrigin + path;
         return `url("${proxyBase}${encodeURIComponent(fullUrl)}")`;
-      }
-    );
-    
-    content = content.replace(
-      /window\.location\.href\s*=\s*["'](https?:\/\/[^"']+)["']/gi,
-      (match, url) => {
-        return `window.location.href = "${proxyBase}${encodeURIComponent(url)}"`;
       }
     );
     
@@ -419,7 +386,7 @@ app.get('/favicon.ico', (req, res) => {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`🔮 PROXY ULTIME activé sur le port ${port}`);
+  console.log(`🔮 PROXY ULTIME V2 activé sur le port ${port}`);
   console.log(`🌍 Accédez à: http://localhost:${port}`);
-  console.log(`🚀 Prêt à contourner toutes les restrictions!`);
+  console.log(`🚀 Problème de compression résolu !`);
 });
